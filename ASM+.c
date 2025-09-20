@@ -74,6 +74,44 @@ void print_help(const char *prog_name) {
     printf("  PRINT \"text\"   Print text to screen with newline support (use \\n)\n");
     printf("  colour_bg <n>  Set background colour of bootloader\n");
     printf("  colour_fg <n>  Set text (foreground) colour of bootloader\n\n");
+
+    printf("Colour codes:\n");
+
+    printf(" colour_bg:\n");
+    printf("   0 = Black\n");
+    printf("   1 = Blue\n");
+    printf("   2 = Green\n");
+    printf("   3 = Cyan\n");
+    printf("   4 = Red\n");
+    printf("   5 = Magenta\n");
+    printf("   6 = Brown\n");
+    printf("   7 = Light Grey\n");
+    printf("   8 = Dark Grey\n");
+    printf("   9 = Light Blue\n");
+    printf("  10 = Light Green\n");
+    printf("  11 = Light Cyan\n");
+    printf("  12 = Light Red\n");
+    printf("  13 = Light Magenta\n");
+    printf("  14 = Yellow\n");
+    printf("  15 = White\n\n");
+
+    printf(" colour_fg:\n");
+    printf("   0 = Black\n");
+    printf("   1 = Blue\n");
+    printf("   2 = Green\n");
+    printf("   3 = Cyan\n");
+    printf("   4 = Red\n");
+    printf("   5 = Magenta\n");
+    printf("   6 = Brown\n");
+    printf("   7 = Light Grey\n");
+    printf("   8 = Dark Grey\n");
+    printf("   9 = Light Blue\n");
+    printf("  10 = Light Green\n");
+    printf("  11 = Light Cyan\n");
+    printf("  12 = Light Red\n");
+    printf("  13 = Light Magenta\n");
+    printf("  14 = Yellow\n");
+    printf("  15 = White\n");
 }
 
 typedef struct LineNode {
@@ -174,25 +212,26 @@ int main(int argc, char *argv[]) {
 
     int attr = (bg_colour << 4) | (fg_colour & 0x0F);
 
-    // Clear screen and move cursor to middle-left
-    fprintf(out,
-        "cli\n"
-        "mov ax, 0xB800\n"
-        "mov es, ax\n"
-        "xor di, di\n"
-        "mov cx, 2000\n"
-        "mov al, ' '\n"
-        "mov ah, 0x%02X\n"
-        "clear_loop:\n"
-        "mov [es:di], al\n"
-        "inc di\n"
-        "mov [es:di], ah\n"
-        "inc di\n"
-        "loop clear_loop\n\n"
-        "mov di, %d\n",
-        attr,
-        12 * 80 * 2
-    );
+// Clear screen and move cursor to bottom-right
+fprintf(out,
+    "cli\n"
+    "mov ax, 0xB800\n"
+    "mov es, ax\n"
+    "xor di, di\n"
+    "mov cx, 2000\n"
+    "mov al, ' '\n"
+    "mov ah, 0x%02X\n"
+    "clear_loop:\n"
+    "mov [es:di], al\n"
+    "inc di\n"
+    "mov [es:di], ah\n"
+    "inc di\n"
+    "loop clear_loop\n\n"
+    "mov di, %d\n",   // bottom-right offset
+    attr,
+    24 * 80 * 2 + 79 * 2
+);
+
 
     LineNode *cur = head;
     int print_count = 0, prev_print_id = -1;
@@ -286,6 +325,11 @@ int main(int argc, char *argv[]) {
 
     printf("Assembly compiled to binary and final file '%s' ready.\n", outputFile);
 
+    struct stat st;
+    if(stat(outputFile,&st)==0) {
+        printf("\nBootloader info:\n  File name: %s\n  File size: %lld bytes\n", outputFile,(long long)st.st_size);
+    } else { perror("Error retrieving bootloader file info"); }
+
     if(run_after) {
         char run_cmd[MAX_LINE*3];
         snprintf(run_cmd,sizeof(run_cmd),"qemu-system-x86_64 -drive file=%s,format=raw", outputFile);
@@ -294,10 +338,6 @@ int main(int argc, char *argv[]) {
         if(qemu_res != 0) { fprintf(stderr,"Error: qemu execution failed\n"); return 1; }
     }
 
-    struct stat st;
-    if(stat(outputFile,&st)==0) {
-        printf("\nBootloader info:\n  File name: %s\n  File size: %lld bytes\n", outputFile,(long long)st.st_size);
-    } else { perror("Error retrieving bootloader file info"); }
 
     return 0;
 }
