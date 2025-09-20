@@ -46,14 +46,11 @@ int extract_go_label_colon(const char *line, char *label, size_t max_len) {
 }
 
 // Converts \n in input string to actual newlines in output buffer
-// input: null-terminated C string (no quotes)
-// output: buffer large enough to hold converted string (including null)
-// returns pointer to output buffer
 char *convert_escapes(const char *input, char *output, size_t max_len) {
     size_t in_i = 0, out_i = 0;
     while (input[in_i] != '\0' && out_i + 1 < max_len) {
         if (input[in_i] == '\\' && input[in_i + 1] == 'n') {
-            output[out_i++] = '\n';  // real newline character
+            output[out_i++] = '\n';  // real newline
             in_i += 2;
         } else {
             output[out_i++] = input[in_i++];
@@ -77,47 +74,8 @@ void print_help(const char *prog_name) {
     printf("  PRINT \"text\"   Print text to screen with newline support (use \\n)\n");
     printf("  colour_bg <n>  Set background colour of bootloader\n");
     printf("  colour_fg <n>  Set text (foreground) colour of bootloader\n\n");
-
-    printf("Colour codes:\n");
-
-    printf(" colour_bg:\n");
-    printf("   0 = Black\n");
-    printf("   1 = Blue\n");
-    printf("   2 = Green\n");
-    printf("   3 = Cyan\n");
-    printf("   4 = Red\n");
-    printf("   5 = Magenta\n");
-    printf("   6 = Brown\n");
-    printf("   7 = Light Grey\n");
-    printf("   8 = Dark Grey\n");
-    printf("   9 = Light Blue\n");
-    printf("  10 = Light Green\n");
-    printf("  11 = Light Cyan\n");
-    printf("  12 = Light Red\n");
-    printf("  13 = Light Magenta\n");
-    printf("  14 = Yellow\n");
-    printf("  15 = White\n\n");
-
-    printf(" colour_fg:\n");
-    printf("   0 = Black\n");
-    printf("   1 = Blue\n");
-    printf("   2 = Green\n");
-    printf("   3 = Cyan\n");
-    printf("   4 = Red\n");
-    printf("   5 = Magenta\n");
-    printf("   6 = Brown\n");
-    printf("   7 = Light Grey\n");
-    printf("   8 = Dark Grey\n");
-    printf("   9 = Light Blue\n");
-    printf("  10 = Light Green\n");
-    printf("  11 = Light Cyan\n");
-    printf("  12 = Light Red\n");
-    printf("  13 = Light Magenta\n");
-    printf("  14 = Yellow\n");
-    printf("  15 = White\n");
 }
 
-// Linked list node for buffered lines
 typedef struct LineNode {
     char *line;
     struct LineNode *next;
@@ -126,7 +84,6 @@ typedef struct LineNode {
 LineNode *head = NULL;
 LineNode *tail = NULL;
 
-// Helper to add line to linked list
 void add_line(const char *line) {
     LineNode *new_node = malloc(sizeof(LineNode));
     if (!new_node) {
@@ -155,7 +112,7 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    int run_after = 0;  // flag for running with qemu
+    int run_after = 0;
 
     if (argc < 4) {
         fprintf(stderr, "Usage: %s <input.nexs> -o <output.nex> [-r]\n", argv[0]);
@@ -167,9 +124,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    if (argc == 5 && strcmp(argv[4], "-r") == 0) {
-        run_after = 1;
-    } else if (argc > 5) {
+    if (argc == 5 && strcmp(argv[4], "-r") == 0) run_after = 1;
+    else if (argc > 5) {
         fprintf(stderr, "Usage: %s <input.nexs> -o <output.nex> [-r]\n", argv[0]);
         return 1;
     }
@@ -178,188 +134,130 @@ int main(int argc, char *argv[]) {
     const char *outputFile = argv[3];
 
     FILE *in = fopen(inputFile, "r");
-    if (!in) {
-        perror("Error opening input file");
-        return 1;
-    }
+    if (!in) { perror("Error opening input file"); return 1; }
 
     FILE *out = fopen(outputFile, "w");
-    if (!out) {
-        perror("Error opening output file");
-        fclose(in);
-        return 1;
-    }
+    if (!out) { perror("Error opening output file"); fclose(in); return 1; }
 
     char buffer[MAX_LINE];
     char conv_text[MAX_LINE * 2];
+    int bg_colour = 0;
+    int fg_colour = 7;
 
-    // Track colour settings with defaults
-    int bg_colour = 0;  // black
-    int fg_colour = 7;  // light grey
+    // --- Bootloader header ---
+    fprintf(out, "bits 16\norg 0x7C00\n\n");
 
-    // Read input and parse, buffering lines except colour commands
     while (fgets(buffer, sizeof(buffer), in)) {
         char line[MAX_LINE];
         strncpy(line, buffer, sizeof(line));
         line[sizeof(line) - 1] = '\0';
-
         trim(line);
+        if (is_brace_line(line)) continue;
 
-        if (is_brace_line(line)) {
+        if (strncmp(line, "colour_bg", 9) == 0) {
+            char *p = line + 9; while (isspace((unsigned char)*p)) p++;
+            int val = atoi(p);
+            if (val >= 0 && val <= 15) bg_colour = val;
+            else fprintf(stderr, "Invalid background colour code %d, using default\n", val);
+            continue;
+        } else if (strncmp(line, "colour_fg", 9) == 0) {
+            char *p = line + 9; while (isspace((unsigned char)*p)) p++;
+            int val = atoi(p);
+            if (val >= 0 && val <= 15) fg_colour = val;
+            else fprintf(stderr, "Invalid foreground colour code %d, using default\n", val);
             continue;
         }
 
-        if (strncmp(line, "colour_bg", 9) == 0) {
-            char *p = line + 9;
-            while (isspace((unsigned char)*p)) p++;
-            int val = atoi(p);
-            if (val >= 0 && val <= 15) {
-                bg_colour = val;
-            } else {
-                fprintf(stderr, "Invalid background colour code %d, using default\n", val);
-            }
-            continue;  // skip adding line
-        } else if (strncmp(line, "colour_fg", 9) == 0) {
-            char *p = line + 9;
-            while (isspace((unsigned char)*p)) p++;
-            int val = atoi(p);
-            if (val >= 0 && val <= 15) {
-                fg_colour = val;
-            } else {
-                fprintf(stderr, "Invalid foreground colour code %d, using default\n", val);
-            }
-            continue;  // skip adding line
-        }
-
-        // Add all other lines to linked list
         add_line(buffer);
     }
-
     fclose(in);
 
-    // Calculate attribute byte
     int attr = (bg_colour << 4) | (fg_colour & 0x0F);
 
-    // Clear entire screen (80 cols * 25 rows = 2000 characters)
+    // Clear screen and move cursor to middle-left
     fprintf(out,
-        "    cli\n"
-        "    mov ax, 0xB800\n"
-        "    mov es, ax\n"
-        "    xor di, di\n"          // start at top-left (offset 0)
-        "    mov cx, 2000\n"       // 80*25 characters to clear
-        "    mov al, ' '\n"
-        "    mov ah, 0x%02X\n"     // attribute byte (bg << 4 | fg)
+        "cli\n"
+        "mov ax, 0xB800\n"
+        "mov es, ax\n"
+        "xor di, di\n"
+        "mov cx, 2000\n"
+        "mov al, ' '\n"
+        "mov ah, 0x%02X\n"
         "clear_loop:\n"
-        "    mov [es:di], al\n"
-        "    inc di\n"
-        "    mov [es:di], ah\n"
-        "    inc di\n"
-        "    loop clear_loop\n\n"
-        // Move cursor to middle-left (row 12, col 0)
-        "    mov di, %d\n"
-        ,
+        "mov [es:di], al\n"
+        "inc di\n"
+        "mov [es:di], ah\n"
+        "inc di\n"
+        "loop clear_loop\n\n"
+        "mov di, %d\n",
         attr,
-        12 * 80 * 2  // Row 12, column 0; each cell 2 bytes
+        12 * 80 * 2
     );
 
-    // Now output all buffered lines and reprint PRINT commands so text reappears after clear
     LineNode *cur = head;
-    int print_count = 0;
-    int prev_print_id = -1;
+    int print_count = 0, prev_print_id = -1;
 
     while (cur) {
         char *line = cur->line;
         trim(line);
 
-        if (strcmp(line, "STOP") == 0) {
-            fputs(STOP "\n", out);
-        } else if (strcmp(line, "STOP_LOOP") == 0) {
-            fputs(STOP_LOOP "\n", out);
-        } else if (strncmp(line, "GO", 2) == 0) {
+        if (strcmp(line, "STOP") == 0) fputs(STOP "\n", out);
+        else if (strcmp(line, "STOP_LOOP") == 0) fputs(STOP_LOOP "\n", out);
+        else if (strncmp(line, "GO", 2) == 0) {
             char label[128];
-            if (extract_go_label_colon(line, label, sizeof(label))) {
-                fprintf(out, "jmp %s\n", label);
-            } else {
-                fputs(line, out);
-                fputc('\n', out);
-            }
-        } else if (strncmp(line, "PRINT", 5) == 0) {
+            if (extract_go_label_colon(line, label, sizeof(label))) fprintf(out, "jmp %s\n", label);
+            else { fputs(line, out); fputc('\n', out); }
+        }
+        else if (strncmp(line, "PRINT", 5) == 0) {
             char *start = strchr(line, '"');
             char *end = strrchr(line, '"');
             if (start && end && end > start) {
-                *end = '\0';
-                start++;
+                *end = '\0'; start++;
                 convert_escapes(start, conv_text, sizeof(conv_text));
                 int id = print_count++;
-
-                if (prev_print_id >= 0) {
-                    fprintf(out, "    jmp print_%d\n\n", id);
-                }
+                if (prev_print_id >= 0) fprintf(out, "jmp print_%d\n\n", id);
 
                 fprintf(out, "print_%d:\n", id);
-
                 fprintf(out,
-                    "    cli\n"
-                    "    xor ax, ax\n"
-                    "    mov ds, ax\n"
-                    "    mov si, message_%d\n"
-                    "print_loop_%d:\n"
-                    "    lodsb\n"
-                    "    or al, al\n"
-                    "    jz print_done_%d\n"
-                    "    cmp al, 10\n"
-                    "    jne print_char_%d\n"
-                    "    mov al, 13\n"
-                    "    mov ah, 0x0E\n"
-                    "    int 0x10\n"
-                    "    mov al, 10\n"
-                    "    mov ah, 0x0E\n"
-                    "    int 0x10\n"
-                    "    jmp print_loop_%d\n"
-                    "print_char_%d:\n"
-                    "    mov ah, 0x0E\n"
-                    "    int 0x10\n"
-                    "    jmp print_loop_%d\n"
-                    "print_done_%d:\n"
-                    "    sti\n",
-                    id, id, id, id, id, id, id, id, id
+                    "cli\nxor ax, ax\nmov ds, ax\nmov si, message_%d\n"
+                    "print_loop_%d:\nlodsb\nor al, al\njz print_done_%d\n"
+                    "cmp al, 10\njne print_char_%d\n"
+                    "mov al, 13\nmov ah, 0x0E\nint 0x10\n"
+                    "mov al, 10\nmov ah, 0x0E\nint 0x10\njmp print_loop_%d\n"
+                    "print_char_%d:\nmov ah, 0x0E\nint 0x10\njmp print_loop_%d\n"
+                    "print_done_%d:\nsti\n",
+                    id,id,id,id,id,id,id,id,id
                 );
 
                 fprintf(out, "message_%d db ", id);
-                char *pos = conv_text;
-                int first = 1;
+                char *pos = conv_text; int first = 1;
                 while (*pos) {
                     char *newline_pos = strchr(pos, '\n');
                     if (newline_pos) *newline_pos = '\0';
-
                     if (!first) fprintf(out, ",10,");
                     fprintf(out, "\"%s\"", pos);
-
                     first = 0;
                     if (!newline_pos) break;
                     pos = newline_pos + 1;
                 }
                 fprintf(out, ",0\n\n");
-
                 prev_print_id = id;
-            } else {
-                fputs(line, out);
-                fputc('\n', out);
-            }
-        } else {
-            fputs(line, out);
-            fputc('\n', out);
-        }
+            } else { fputs(line, out); fputc('\n', out); }
+        } else { fputs(line, out); fputc('\n', out); }
         cur = cur->next;
     }
 
-    if (prev_print_id >= 0) {
-        fprintf(out, "jmp HALT\n");
-    }
+    // --- Bootloader end ---
+    fprintf(out,
+        "\ncli\nhlt\njmp $\n"
+        "times 510-($-$$) db 0\n"
+        "db 0x55\n"
+        "db 0xAA\n"
+    );
 
     fclose(out);
 
-    // Free linked list memory
+    // Free linked list
     cur = head;
     while (cur) {
         LineNode *next = cur->next;
@@ -372,56 +270,34 @@ int main(int argc, char *argv[]) {
 
     char binFile[MAX_LINE];
     strncpy(binFile, outputFile, sizeof(binFile));
-    binFile[sizeof(binFile) - 1] = '\0';
-
+    binFile[sizeof(binFile)-1]='\0';
     char *dot = strrchr(binFile, '.');
-    if (dot != NULL) {
-        strcpy(dot, ".bin");
-    } else {
-        strcat(binFile, ".bin");
-    }
+    if(dot) strcpy(dot, ".bin"); else strcat(binFile, ".bin");
 
-    char cmd[MAX_LINE * 3];
-    snprintf(cmd, sizeof(cmd), "nasm -f bin \"%s\" -o \"%s\"", outputFile, binFile);
+    char cmd[MAX_LINE*3];
+    snprintf(cmd,sizeof(cmd),"nasm -f bin \"%s\" -o \"%s\"", outputFile, binFile);
 
     printf("Running: %s\n", cmd);
     int res = system(cmd);
-    if (res != 0) {
-        fprintf(stderr, "Error: nasm compilation failed\n");
-        return 1;
-    }
+    if(res != 0) { fprintf(stderr,"Error: nasm compilation failed\n"); return 1; }
 
-    if (remove(outputFile) != 0) {
-        perror("Warning: could not delete intermediate .nex file");
-    }
-
-    if (rename(binFile, outputFile) != 0) {
-        perror("Error renaming .bin to .nex");
-        return 1;
-    }
+    if(remove(outputFile)!=0) perror("Warning: could not delete intermediate .nex file");
+    if(rename(binFile, outputFile)!=0) { perror("Error renaming .bin to .nex"); return 1; }
 
     printf("Assembly compiled to binary and final file '%s' ready.\n", outputFile);
 
-    if (run_after) {
-        char run_cmd[MAX_LINE * 3];
-        snprintf(run_cmd, sizeof(run_cmd), "qemu-system-x86_64 -drive file=%s,format=raw", outputFile);
+    if(run_after) {
+        char run_cmd[MAX_LINE*3];
+        snprintf(run_cmd,sizeof(run_cmd),"qemu-system-x86_64 -drive file=%s,format=raw", outputFile);
         printf("Running: %s\n", run_cmd);
         int qemu_res = system(run_cmd);
-        if (qemu_res != 0) {
-            fprintf(stderr, "Error: qemu execution failed\n");
-            return 1;
-        }
+        if(qemu_res != 0) { fprintf(stderr,"Error: qemu execution failed\n"); return 1; }
     }
 
-    // Print bootloader file info
     struct stat st;
-    if (stat(outputFile, &st) == 0) {
-        printf("\nBootloader info:\n");
-        printf("  File name: %s\n", outputFile);
-        printf("  File size: %lld bytes\n", (long long)st.st_size);
-    } else {
-        perror("Error retrieving bootloader file info");
-    }
+    if(stat(outputFile,&st)==0) {
+        printf("\nBootloader info:\n  File name: %s\n  File size: %lld bytes\n", outputFile,(long long)st.st_size);
+    } else { perror("Error retrieving bootloader file info"); }
 
     return 0;
 }
