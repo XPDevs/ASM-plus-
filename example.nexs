@@ -1,0 +1,10 @@
+GO HELLO:
+
+HELLO:
+PRINT "Hello World!"
+colour_fg 0
+colour_bg 15
+GO STOP:
+
+STOP:
+STOP_LOOP
